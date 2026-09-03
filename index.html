@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多次元立方体（超立方体）ジェネレーター</title>
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-color: #111;
+            color: #fff;
+            font-family: sans-serif;
+            overflow: hidden;
+        }
+        .controls {
+            margin-bottom: 20px;
+            z-index: 10;
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .controls input {
+            padding: 8px;
+            font-size: 16px;
+            width: 60px;
+            text-align: center;
+            background: #222;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 4px;
+        }
+        canvas {
+            background-color: #111;
+            max-width: 100%;
+            max-height: 75vh;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <label for="dimInput">描画する次元数 (N-Dimension): </label>
+        <!-- HTML側のmax制限も削除して、何次元でも打てるようにしました -->
+        <input type="number" id="dimInput" value="4" min="1">
+        <span style="font-size: 12px; margin-left: 10px; color: #aaa;">(※8次元以上はポップアップが出ます)</span>
+    </div>
+
+    <canvas id="glCanvas" width="500" height="500"></canvas>
+
+    <script>
+        const canvas = document.getElementById('glCanvas');
+        const ctx = canvas.getContext('2d');
+        const dimInput = document.getElementById('dimInput');
+
+        let currentDim = parseInt(dimInput.value) || 4;
+        let previousDim = currentDim; 
+        let vertices = [];
+        let edges = [];
+        let angles = []; 
+        let autoScaleFactor = 400; 
+
+        function generateHypercube(dim) {
+            vertices = [];
+            edges = [];
+            if (dim < 1) return;
+
+            const numVertices = Math.pow(2, dim);
+            for (let i = 0; i < numVertices; i++) {
+                let v = [];
+                for (let d = 0; d < dim; d++) {
+                    v.push((i >> d) & 1 ? 1 : -1);
+                }
+                vertices.push(v);
+            }
+
+            for (let i = 0; i < numVertices; i++) {
+                for (let j = i + 1; j < numVertices; j++) {
+                    let diff = i ^ j;
+                    if (diff && (diff & (diff - 1)) === 0) {
+                        edges.push([i, j]);
+                    }
+                }
+            }
+
+            angles = [];
+            const numPlanes = (dim * (dim - 1)) / 2;
+            for (let i = 0; i < numPlanes; i++) {
+                angles.push(0);
+            }
+
+            let maxRawDist = 0;
+            for (let v of vertices) {
+                let current = [...v];
+                for (let d = dim; d > 3; d--) {
+                    const distance = 3.0; 
+                    const w = current[d - 1];
+                    const factor = 1 / (distance - w);
+                    let next = [];
+                    for (let i = 0; i < d - 1; i++) {
+                        next.push(current[i] * factor);
+                    }
+                    current = next;
+                }
+                const distance3D = 3.5;
+                const z = current[2] !== undefined ? current[2] : 0;
+                const factor3D = 1 / (distance3D - z);
+                
+                const rx = (current[0] || 0) * factor3D;
+                const ry = (current[1] || 0) * factor3D;
+                const dist = Math.sqrt(rx * rx + ry * ry);
+                if (dist > maxRawDist) maxRawDist = dist;
+            }
+            
+            autoScaleFactor = maxRawDist > 0 ? 180 / maxRawDist : 400;
+        }
+
+        function rotateND(v, dim) {
+            let rotated = [...v];
+            let angleIndex = 0;
+
+            for (let d1 = 0; d1 < dim; d1++) {
+                for (let d2 = d1 + 1; d2 < dim; d2++) {
+                    const theta = angles[angleIndex] * (0.5 + (angleIndex * 0.1));
+                    const cos = Math.cos(theta);
+                    const sin = Math.sin(theta);
+
+                    const x = rotated[d1];
+                    const y = rotated[d2];
+
+                    rotated[d1] = x * cos - y * sin;
+                    rotated[d2] = x * sin + y * cos;
+
+                    angleIndex++;
+                }
+            }
+            return rotated;
+        }
+
+        function project(v, dim) {
+            let current = [...v];
+            
+            for (let d = dim; d > 3; d--) {
+                const distance = 3.0; 
+                const w = current[d - 1];
+                const factor = 1 / (distance - w);
+                
+                let next = [];
+                for (let i = 0; i < d - 1; i++) {
+                    next.push(current[i] * factor);
+                }
+                current = next;
+            }
+
+            const distance3D = 3.5;
+            const z = current[2] !== undefined ? current[2] : 0;
+            const factor3D = 1 / (distance3D - z);
+            
+            const x2d = (current[0] || 0) * factor3D * autoScaleFactor + canvas.width / 2;
+            const y2d = (current[1] || 0) * factor3D * autoScaleFactor + canvas.height / 2;
+
+            return { x: x2d, y: y2d };
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = 0; i < angles.length; i++) {
+                angles[i] += 0.01;
+            }
+
+            const projectedVertices = vertices.map(v => {
+                const rotated = rotateND(v, currentDim);
+                return project(rotated, currentDim);
+            });
+
+            // 次元数が高くなるほど線をより透明(0.1)に、より細くして、画面が真っ白に潰れないように自動調整
+            if (currentDim >= 8) {
+                ctx.strokeStyle = 'rgba(0, 255, 200, 0.15)';
+                ctx.lineWidth = 0.5;
+            } else if (currentDim >= 6) {
+                ctx.strokeStyle = 'rgba(0, 255, 200, 0.3)';
+                ctx.lineWidth = 0.8;
+            } else {
+                ctx.strokeStyle = 'rgba(0, 255, 200, 0.7)';
+                ctx.lineWidth = 1.5;
+            }
+            
+            for (let edge of edges) {
+                const p1 = projectedVertices[edge[0]];
+                const p2 = projectedVertices[edge[1]];
+                
+                if (p1 && p2) {
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
+                }
+            }
+
+            ctx.fillStyle = '#ff4757';
+            const dotRadius = currentDim >= 8 ? 1 : (currentDim >= 6 ? 2 : 4);
+            for (let p of projectedVertices) {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, dotRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        dimInput.addEventListener('input', () => {
+            let val = parseInt(dimInput.value);
+            if (isNaN(val) || val < 1) val = 1;
+
+            // 【バグ修正】上限値の10制限を撤去！打たれた数字がそのまま判定に入ります
+            if (val >= 8) {
+                // 入力された次元数（val）がそのままポップアップに反映されます
+                const result = confirm(`${val}次元立方体を描写しますか？（計算量が非常に多くなるため、お使いのPCによっては動作が重くなる可能性があります）`);
+                if (result) {
+                    currentDim = val;
+                    previousDim = val;
+                } else {
+                    dimInput.value = previousDim;
+                    return;
+                }
+            } else {
+                currentDim = val;
+                previousDim = val;
+            }
+
+            generateHypercube(currentDim);
+        });
+
+        generateHypercube(currentDim);
+        animate();
+    </script>
+</body>
+</html>
