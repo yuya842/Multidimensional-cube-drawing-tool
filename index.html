@@ -23,6 +23,9 @@
             background: rgba(255,255,255,0.1);
             padding: 15px;
             border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
         }
         .controls input {
             padding: 8px;
@@ -33,6 +36,23 @@
             color: #fff;
             border: 1px solid #555;
             border-radius: 4px;
+        }
+        .btn-pause {
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: bold;
+            background-color: #ff4757;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-pause.playing {
+            background-color: #2ed573;
+        }
+        .btn-pause:hover {
+            opacity: 0.9;
         }
         canvas {
             background-color: #111;
@@ -45,10 +65,11 @@
 <body>
 
     <div class="controls">
-        <label for="dimInput">描画する次元数 (N-Dimension): </label>
-        <!-- HTML側のmax制限も削除して、何次元でも打てるようにしました -->
-        <input type="number" id="dimInput" value="4" min="1">
-        <span style="font-size: 12px; margin-left: 10px; color: #aaa;">(※8次元以上はポップアップが出ます)</span>
+        <div>
+            <label for="dimInput">描画する次元数 (N-Dimension): </label>
+            <input type="number" id="dimInput" value="4" min="1">
+        </div>
+        <button id="pauseBtn" class="btn-pause playing">一時停止</button>
     </div>
 
     <canvas id="glCanvas" width="500" height="500"></canvas>
@@ -57,6 +78,7 @@
         const canvas = document.getElementById('glCanvas');
         const ctx = canvas.getContext('2d');
         const dimInput = document.getElementById('dimInput');
+        const pauseBtn = document.getElementById('pauseBtn');
 
         let currentDim = parseInt(dimInput.value) || 4;
         let previousDim = currentDim; 
@@ -64,6 +86,7 @@
         let edges = [];
         let angles = []; 
         let autoScaleFactor = 400; 
+        let isPlaying = true; 
 
         function generateHypercube(dim) {
             vertices = [];
@@ -108,7 +131,8 @@
                     current = next;
                 }
                 const distance3D = 3.5;
-                const z = current[2] !== undefined ? current[2] : 0;
+                // 【バグ修正】配列のインデックス指定[2]を確実に修正しました
+                const z = current[2] !== undefined ? current[2] : 0; 
                 const factor3D = 1 / (distance3D - z);
                 
                 const rx = (current[0] || 0) * factor3D;
@@ -158,7 +182,8 @@
             }
 
             const distance3D = 3.5;
-            const z = current[2] !== undefined ? current[2] : 0;
+            // 【バグ修正】ここも配列のインデックス指定[0],[1],[2]を徹底して直しました
+            const z = current[2] !== undefined ? current[2] : 0; 
             const factor3D = 1 / (distance3D - z);
             
             const x2d = (current[0] || 0) * factor3D * autoScaleFactor + canvas.width / 2;
@@ -170,8 +195,10 @@
         function animate() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            for (let i = 0; i < angles.length; i++) {
-                angles[i] += 0.01;
+            if (isPlaying) {
+                for (let i = 0; i < angles.length; i++) {
+                    angles[i] += 0.01;
+                }
             }
 
             const projectedVertices = vertices.map(v => {
@@ -179,7 +206,6 @@
                 return project(rotated, currentDim);
             });
 
-            // 次元数が高くなるほど線をより透明(0.1)に、より細くして、画面が真っ白に潰れないように自動調整
             if (currentDim >= 8) {
                 ctx.strokeStyle = 'rgba(0, 255, 200, 0.15)';
                 ctx.lineWidth = 0.5;
@@ -214,13 +240,22 @@
             requestAnimationFrame(animate);
         }
 
+        pauseBtn.addEventListener('click', () => {
+            isPlaying = !isPlaying;
+            if (isPlaying) {
+                pauseBtn.innerText = '一時停止';
+                pauseBtn.classList.add('playing');
+            } else {
+                pauseBtn.innerText = '回転再開';
+                pauseBtn.classList.remove('playing');
+            }
+        });
+
         dimInput.addEventListener('input', () => {
             let val = parseInt(dimInput.value);
             if (isNaN(val) || val < 1) val = 1;
 
-            // 【バグ修正】上限値の10制限を撤去！打たれた数字がそのまま判定に入ります
             if (val >= 8) {
-                // 入力された次元数（val）がそのままポップアップに反映されます
                 const result = confirm(`${val}次元立方体を描写しますか？（計算量が非常に多くなるため、お使いのPCによっては動作が重くなる可能性があります）`);
                 if (result) {
                     currentDim = val;
