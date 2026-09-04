@@ -7,7 +7,7 @@
     <style>
         body {
             margin: 0;
-            height: 100vh;
+            min-height: 100vh; /* height から min-height に変えて、下に引っ張れる余裕を作ります */
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -15,7 +15,7 @@
             background-color: #111;
             color: #fff;
             font-family: sans-serif;
-            overflow: hidden;
+            overflow-y: auto; /* ★お待たせしました！画面全体の縦スクロールを解禁！ */
         }
         .controls {
             margin-bottom: 20px;
@@ -64,12 +64,17 @@
 </head>
 <body>
 
-    <div class="controls">
-        <div>
-            <label for="dimInput">描画する次元数 (N-Dimension): </label>
-            <input type="number" id="dimInput" value="4" min="1">
+    <div class="controls" style="flex-direction: column; align-items: flex-start; padding: 15px; width: 450px; max-width: 90vw;">
+        <div style="display: flex; align-items: center; gap: 15px; width: 100%;">
+            <div>
+                <label for="dimInput">描画する次元数 (N-Dimension): </label>
+                <input type="number" id="dimInput" value="4" min="1">
+            </div>
+            <button id="pauseBtn" class="btn-pause playing">一時停止</button>
+            <button id="resetSlidersBtn" style="padding: 8px 16px; font-size: 14px; font-weight: bold; background-color: #ffa500; color: white; border: none; border-radius: 4px; cursor: pointer;">回転リセット</button>
         </div>
-        <button id="pauseBtn" class="btn-pause playing">一時停止</button>
+        <!-- 高さを120px〜150pxほどしっかり確保し、はみ出た分だけをスクロールできるようにしました！ -->
+        <div id="sliderContainer" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 15px; width: 100%; max-height: 150px; overflow-y: auto; font-size: 13px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 10px;"></div>
     </div>
 
     <canvas id="glCanvas" width="500" height="500"></canvas>
@@ -115,6 +120,76 @@
             const numPlanes = (dim * (dim - 1)) / 2;
             for (let i = 0; i < numPlanes; i++) {
                 angles.push(0);
+            }
+
+            // ★★★ 各面の回転速度（強さ）を管理する配列を新設 ★★★
+            // 初期状態はそれぞれ少しずつ違うスピードを持たせておきます
+            let activePlanes = [];
+            const standardAxes = ['X', 'Y', 'Z', 'W', 'V', 'U', 'T', 'S', 'R', 'Q', 'P', 'O', 'N', 'M', 'L', 'K', 'J', 'I', 'H', 'G', 'F', 'E', 'D', 'C', 'B', 'A'];
+            const getAxisLabel = (index) => {
+                return index < standardAxes.length ? standardAxes[index] : `x${index + 1}`;
+            };
+
+            for (let d1 = 0; d1 < dim; d1++) {
+                for (let d2 = d1 + 1; d2 < dim; d2++) {
+                    activePlanes.push(`${getAxisLabel(d1)}-${getAxisLabel(d2)}`);
+                }
+            }
+
+            // 操作パネル（入力欄）を画面に作り出す処理
+            const container = document.getElementById('sliderContainer');
+            if (container) {
+                container.innerHTML = ''; // 一旦クリア
+                
+                // 初回だけ初期スピードをセット（すでにデータがある場合はそれを引き継ぐ！）
+                if (!window.currentPlaneSpeeds || window.currentPlaneSpeeds.length !== numPlanes) {
+                    window.currentPlaneSpeeds = [];
+                    for (let i = 0; i < numPlanes; i++) {
+                        window.currentPlaneSpeeds.push(0.01 * (0.5 + (i * 0.1)));
+                    }
+                }
+
+                activePlanes.forEach((name, idx) => {
+                    const wrapper = document.createElement('div');
+                    wrapper.style.display = 'flex';
+                    wrapper.style.alignItems = 'center';
+                    wrapper.style.gap = '5px';
+                    wrapper.style.padding = '5px 0';
+
+                    // 現在保持している正しい数値を初期値として表示
+                    const currentVal = (window.currentPlaneSpeeds[idx] * 100).toFixed(1);
+
+                    wrapper.innerHTML = `
+                        <span style="width: 50px; text-align: right; color: #2ed573; font-weight: bold;">${name}:</span>
+                        <input type="number" id="speedInput_${idx}" value="${currentVal}" step="0.1" style="width: 60px; padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px; text-align: center;">
+                    `;
+                    container.appendChild(wrapper);
+
+                    const inputField = wrapper.querySelector(`#speedInput_${idx}`);
+                    
+                    // 【重要】入力された瞬間に、即座に裏の計算データへ更新を反映させる
+                    inputField.addEventListener('input', (e) => {
+                        let val = parseFloat(e.target.value);
+                        if (isNaN(val)) val = 0; 
+                        window.currentPlaneSpeeds[idx] = val / 100; // ここで裏の力を完全更新！
+                    });
+                });
+            }
+
+            // 回転リセットボタンの動作（最初の自動回転スピードへ完全同期リセット）
+            const resetBtn = document.getElementById('resetSlidersBtn');
+            if (resetBtn) {
+                resetBtn.onclick = () => {
+                    if (window.currentPlaneSpeeds) {
+                        for (let i = 0; i < numPlanes; i++) {
+                            const initialSpeed = 0.01 * (0.5 + (i * 0.1));
+                            window.currentPlaneSpeeds[i] = initialSpeed; // 裏のデータをリセット
+                            
+                            const inputField = document.getElementById(`speedInput_${i}`);
+                            if (inputField) inputField.value = (initialSpeed * 100).toFixed(1); // 画面の表示もリセット
+                        }
+                    }
+                };
             }
 
             let maxRawDist = 0;
@@ -195,9 +270,10 @@
         function animate() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            if (isPlaying) {
+            if (isPlaying && window.currentPlaneSpeeds) {
                 for (let i = 0; i < angles.length; i++) {
-                    angles[i] += 0.01;
+                    // 固定値の0.01ではなく、バーで設定したスピード（強さ）を足す！
+                    angles[i] += window.currentPlaneSpeeds[i] || 0;
                 }
             }
 
